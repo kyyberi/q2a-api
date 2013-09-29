@@ -21,7 +21,7 @@ Epi::init('base','cache','session');
 //$router = new EpiRoute();
 
 // GET METHODS
-//getRoute()->get('/', array('Api', 'MyMethod'));
+getRoute()->get('/', array('Api', 'MyMethod'));
 getRoute()->get('/tags', array('Api', 'Tags'));
 getRoute()->get('/tags/title/([\w\s%-]+)', array('Api', 'OneTag'));
 getRoute()->get('/tags/id/(\d+)', array('Api', 'OneTagId'));
@@ -31,6 +31,7 @@ getRoute()->get('/answers/count', array('Api', 'AnswersCount'));
 getRoute()->get('/users', array('Api', 'Users'));
 getRoute()->get('/users/(\d+)', array('Api', 'UserDetails'));
 getRoute()->get('/questions', array('Api', 'Questions'));
+getRoute()->get('/questions/id/(\d+)', array('Api', 'OneQuestion'));
 getRoute()->get('/questions/count', array('Api', 'QuestionsCount'));
 getRoute()->get('/questions/year/(\d+)', array('Api', 'QuestionsYear'));
 getRoute()->get('/questions/(\d+)/(\d+)', array('Api', 'QuestionsYearMonth'));
@@ -46,12 +47,13 @@ getRoute()->get('/api/stats', array('Api', 'ApiStats'));
 getRoute()->get('/api/stats/daily', array('Api', 'ApiStatsDaily'));
 getRoute()->get('/license', array('Api', 'showRights'));
 getRoute()->get('/api/auth/remove/verify/(.*)', array('Api', 'apiRemoveVerify'));
-
+getRoute()->get('/avatar/(.*)', array('Api', 'getGravatar'));
+getRoute()->get('/api/auth/remove', array('Api', 'apiRemoveDomain'));
 
 // POST METHODS
 getRoute()->post('/search/questions', array('Api', 'apiSearchQuestions'));
 getRoute()->post('/api/auth/new', array('Api', 'apiAuthNew'));
-getRoute()->get('/api/auth/remove', array('Api', 'apiRemoveDomain'));
+
 
 getRoute()->get('.*', array('ApiErrors', 'error404'));
 
@@ -65,6 +67,8 @@ getRoute()->run();
  */
 class Api
 {
+
+ 
 
   public function apiRemoveVerify($key) {
 	$removekey = trim($key);
@@ -274,7 +278,7 @@ public function token($length) {
 		ApiErrors::errorDbConnection($reason, $errno);
 
 	}else{
-		$sql = "SELECT title, postid, content, acount, views, tags, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts 
+		$sql = "SELECT title, userid, postid, content, acount, views, tags, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts 
                 WHERE type='Q' 
 		AND NOT(type='Q_HIDDEN')
 		AND NOT(type='A')
@@ -283,7 +287,21 @@ public function token($length) {
 		
 		$num_rows = mysqli_num_rows($tags);
 		while ($row = mysqli_fetch_array($tags)):  
-			
+			$userid = $row['userid'];
+						
+			$userdetails = mysqli_query($con,"select * FROM qa_users WHERE userid = '".$userid."';") or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));	
+			while ($row2 = mysqli_fetch_array($userdetails)):
+				$userhandle = $row2['handle'];
+				$avatarblob = $row2['avatarblobid'];
+				if($avatarblob != NULL){
+					$blob = "http://avoindata.net/?qa=image&qa_blobid=".$avatarblob;
+				}else{
+					$uhash = md5( strtolower( trim( $row2['email'] ) ) );
+					$blob = "http://api.avoindata.net/avatar/".$uhash;
+				}
+
+
+			endwhile;
 			$str = $row['title'];
 			$title = utf8_encode($str);
 			$rawtitle = $title;
@@ -295,7 +313,7 @@ public function token($length) {
 			$vcount    =   $row['views'];
 			$votes    =   $row['netvotes'];
 			$created    =   $row['created'];
-			$created = strtotime('+1 month',$created);
+			//$created = strtotime('+1 month',$created);
 			$normalized_title = api::normalize_str($title);
 			$url = "http://avoindata.net/".$postid."/";
 			$url .= strtolower($normalized_title);
@@ -316,7 +334,7 @@ public function token($length) {
 					$updated    = 0;
 				}else{
 					$updated    =   $row['updated'];
-					$updated = strtotime('+1 month',$updated);
+			//		$updated = strtotime('+1 month',$updated);
 				}
 			if(strlen($title) > 4){
 				$heystack = "";
@@ -328,11 +346,18 @@ public function token($length) {
 				$found = true;
 					$tiedot .= "    {\"title\":\"".$title."\",";
 					$tiedot .= "\n     \"id\": ".$postid.",";
-					$tiedot .= "\n     \"view_count\": ".$vcount.",";
+					if (is_numeric($userid)) {
+						$tiedot .= "\n     \"userid\": ".$userid.",";
+		    			} else {
+						$tiedot .= "\n     \"userid\": \"".$userid."\",";
+		    			}
+					$tiedot .= "\n     \"userhandle\": \"".$userhandle."\",";
+					$tiedot .= "\n     \"useravatar\": \"".$blob."\",";
+					$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 					$tiedot .= "\n     \"votes\": ".$votes.",";
 					$tiedot .= "\n     \"created\": ".$created.",";
 					$tiedot .= "\n     \"updated\": ".$updated.",";
-					$tiedot .= "\n     \"answer_count\": ".$acount.",";
+					$tiedot .= "\n     \"answercount\": ".$acount.",";
 					$tiedot .= "\n     \"url\": \"".$url."\",";
 					$tiedot .= "\n     ".$tagsout."},\n";
 				}   
@@ -585,9 +610,9 @@ static public function ApiStatsDaily()
 			$tiedot .= "    {\"userid\":".$userid.",";
 			$tiedot .= "\n     \"handle\": \"".$username."\",";
 			$user = str_replace(' ', '+', $username);
-			$tiedot .= "\n     \"question_count\": ".$pcount.",";
-			$tiedot .= "\n     \"profile_url\": \"".$handle.$user."\"},\n";
-			//$tiedot .= "\n     \"question_count\": ".$pcount."\n    },\n";
+			$tiedot .= "\n     \"questioncount\": ".$pcount.",";
+			$tiedot .= "\n     \"profileurl\": \"".$handle.$user."\"},\n";
+			//$tiedot .= "\n     \"questioncount\": ".$pcount."\n    },\n";
 			
 		endwhile;
 		
@@ -640,8 +665,8 @@ static public function ApiStatsDaily()
 			$tiedot .= "    {\"userid\": ".$userid.",";
 			$tiedot .= "\n     \"handle\": \"".$username."\",";
 			$user = str_replace(' ', '+', $username);
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
-			$tiedot .= "\n     \"profile_url\": \"".$handle.$user."\"\n   },\n";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
+			$tiedot .= "\n     \"profileurl\": \"".$handle.$user."\"\n   },\n";
 			
 		endwhile;
 		
@@ -881,11 +906,11 @@ static public function ApiStatsDaily()
 			$lastlogin    =   $row['loggedin'];
 			$tiedot .= "    {\"handle\":\"".$handle."\",";
 			$tiedot .= "\n     \"userid\": ".$userid.",";
-			$tiedot .= "\n     \"points_count\": ".$userpoints.",";
+			$tiedot .= "\n     \"pointscount\": ".$userpoints.",";
 			$tiedot .= "\n     \"questions_count\": ".$questions.",";
-			$tiedot .= "\n     \"answers_count\": ".$answers.",";
+			$tiedot .= "\n     \"answerscount\": ".$answers.",";
 			$tiedot .= "\n     \"created\": ".$joined.",";
-			$tiedot .= "\n     \"last_login\": ".$lastlogin."\n     },\n";
+			$tiedot .= "\n     \"lastlogin\": ".$lastlogin."\n     },\n";
 		endwhile; 
 		$cout = substr($tiedot, 0, strlen($tiedot) -2);
 		$cout .="],\n";
@@ -959,16 +984,16 @@ static public function UserDetails($uid)
 		$postids .= "]";
 
 
-		$ach = mysqli_query($con,"select questions_read, total_days_visited FROM qa_achievements WHERE user_id = '".$uid."';") or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));	
+		$ach = mysqli_query($con,"select questions_read, total_days_visited FROM qa_achievements WHERE userid = '".$uid."';") or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));	
 
 		while ($row = mysqli_fetch_array($ach)):
 			$questions_read = $row['questions_read'];
 		endwhile;
 		
 		$tiedot .= "\n     \"handle\": \"".$handle."\",";
-		$tiedot .= "\n     \"profile_url\": \"".utf8_encode($purl)."\",";
+		$tiedot .= "\n     \"profileurl\": \"".utf8_encode($purl)."\",";
 		$tiedot .= "\n     \"joined\": ".$created.",";
-		$tiedot .= "\n     \"last_login\": ".$lastlogin.",";
+		$tiedot .= "\n     \"lastlogin\": ".$lastlogin.",";
 		$tiedot .= "\n     \"points\": ".$userpoints.",";
 		$tiedot .= "\n     \"questions_read\": ".$questions_read.",";
 		$tiedot .= "\n     \"question_asked\": ".$questions.",";
@@ -1012,12 +1037,32 @@ static public function Questions(){
 		ApiErrors::errorDbConnection($reason, $errno);
 
 	}else{
-		$sql = "SELECT title, postid, acount, views, tags, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts WHERE type='Q' and NOT(type='Q_HIDDEN') ORDER BY created DESC LIMIT 20;";
+		$sql = "SELECT title, userid, postid, acount, views, content, tags, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts WHERE type='Q' and NOT(type='Q_HIDDEN') ORDER BY created DESC LIMIT 20;";
 		
-		$tags = mysqli_query($con,$sql) or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));
+		$posts = mysqli_query($con,$sql) or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));
 		
-		$num_rows = mysqli_num_rows($tags);
-		while ($row = mysqli_fetch_array($tags)):  
+		$num_rows = mysqli_num_rows($posts);
+		while ($row = mysqli_fetch_array($posts)):  
+			$userid = $row['userid'];
+						
+			$userdetails = mysqli_query($con,"select * FROM qa_users WHERE userid = '".$userid."';") or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));	
+			while ($row2 = mysqli_fetch_array($userdetails)):
+				$userhandle = $row2['handle'];
+				$avatarblob = $row2['avatarblobid'];
+				if($avatarblob != NULL){
+					$blob = "http://avoindata.net/?qa=image&qa_blobid=".$avatarblob;
+				}else{
+					$uhash = md5( strtolower( trim( $row2['email'] ) ) );
+					$blob = "http://api.avoindata.net/avatar/".$uhash;
+				}
+
+			endwhile;
+			$content    =   utf8_encode($row['content']);
+			// hiukan regexpia
+			$content = api::bbcode_to_html($content);
+			$content = api::escapeJsonString($content);
+
+
 			$found = true;
 			$str = $row['title'];
 			$title = utf8_encode($str);
@@ -1027,7 +1072,7 @@ static public function Questions(){
 			$vcount    =   $row['views'];
 			$votes    =   $row['netvotes'];
 			$created    =   $row['created'];
-			$created = strtotime('+1 month',$created);
+			//$created = strtotime('+1 month',$created);
 			$normalized_title = api::normalize_str($title);
 			$url = "http://avoindata.net/".$postid."/";
 			$url .= strtolower($normalized_title);
@@ -1048,15 +1093,23 @@ static public function Questions(){
 					$updated    = 0;
 				}else{
 					$updated    =   $row['updated'];
-					$updated = strtotime('+1 month',$updated);
+					// $updated = strtotime('+1 month',$updated);
 				}
 			$tiedot .= "    {\"title\":\"".$title."\",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			if (is_numeric($userid)) {
+        			$tiedot .= "\n     \"userid\": ".$userid.",";
+    			} else {
+        			$tiedot .= "\n     \"userid\": \"".$userid."\",";
+    			}
+			$tiedot .= "\n     \"userhandle\": \"".$userhandle."\",";
+			$tiedot .= "\n     \"usergravatar\": \"".$blob."\",";
+			$tiedot .= "\n     \"content\": \"".$content."\",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
 			$tiedot .= "\n     \"updated\": ".$updated.",";
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
 			$tiedot .= "\n     \"url\": \"".$url."\",";
 			$tiedot .= "\n     ".$tagsout."},\n";    
 		endwhile; 
@@ -1083,6 +1136,216 @@ static public function Questions(){
   }
 
 
+public function getGravatar($hash){
+
+	$gravemail = $hash;
+	$gravsrc = "http://www.gravatar.com/avatar/".$gravemail."?d=404";
+	$gravcheck = "http://www.gravatar.com/avatar/".$gravemail."?d=404";
+	$response = get_headers($gravcheck);
+	//echo $response[0];
+	$status = $response[0];
+//	if ($response[0] != "HTTP/1.1 404 Not Found404 Not Found"){
+	if (strpos($status, '404') === false){
+	    	$gravatar = $gravsrc;
+		
+	}else{
+	    $gravatar = "/home/avoindat/public_html/images/avatar.jpg";
+			
+	}
+	if(false !== ($data = file_get_contents($gravatar))){
+	  	header('Content-type: image/jpeg');
+	  	echo $data;
+	} 	
+
+}
+
+
+static public function OneQuestion($id){
+    
+        $tiedot = "{ \"question\": [\n";
+	$arr = array();
+	$pid = trim($id);
+	$con = Api::getConnection();
+	if (mysqli_connect_errno($con))
+	{
+		$errno = mysqli_connect_errno();
+		$reason = mysqli_connect_error();
+		ApiErrors::errorDbConnection($reason, $errno);
+
+	}else{
+		$sql = "SELECT title, postid, acount, views, content, tags, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts WHERE type='Q' and NOT(type='Q_HIDDEN') and postid='".$pid."' LIMIT 1;";
+		
+		$tags = mysqli_query($con,$sql) or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));
+		
+		$num_rows = mysqli_num_rows($tags);
+		while ($row = mysqli_fetch_array($tags)):  
+			$found = true;
+			$str = $row['title'];
+			$title = utf8_encode($str);
+			$title = api::myreplace($title);
+			$content    =   utf8_encode($row['content']);
+			
+
+			// hiukan regexpia
+			$content = api::bbcode_to_html($content);
+
+			$content = api::escapeJsonString($content);	
+
+			$acount    =   $row['acount'];
+			$postid    =   $row['postid'];
+			$vcount    =   $row['views'];
+			$votes    =   $row['netvotes'];
+			$created    =   $row['created'];
+			//$created = strtotime('+1 month',$created);
+			$normalized_title = api::normalize_str($title);
+			$url = "http://avoindata.net/".$postid."/";
+			$url .= strtolower($normalized_title);
+
+			$mytags_arr = explode(",",$row['tags']);
+			if(sizeof($mytags_arr) > 1){
+				$tagsout = "\"tags\": [";
+				foreach ($mytags_arr as $mytag) {
+					$temp = utf8_encode($mytag);
+					$tagsout .= '"'.$temp.'",';
+				}
+				$tagsout = substr($tagsout, 0, strlen($tagsout) -1);
+	  			$tagsout .= "]";
+  			}else{
+				$tagsout = "\"tags\" : [\"NULL\"]";
+			} 
+			if(strlen($row['updated']) < 6){
+					$updated    = 0;
+				}else{
+					$updated    =   $row['updated'];
+					//$updated = strtotime('+1 month',$updated);
+				}
+			$tiedot .= "    {\"title\":\"".$title."\",";
+			$tiedot .= "\n     \"id\": ".$postid.",";
+			$tiedot .= "\n     \"content\": \"".$content."\",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
+			$tiedot .= "\n     \"votes\": ".$votes.",";
+			$tiedot .= "\n     \"created\": ".$created.",";
+			$tiedot .= "\n     \"updated\": ".$updated.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
+			$tiedot .= "\n     \"url\": \"".$url."\",";
+			$tiedot .= "\n     ".$tagsout."}\n],\n";
+			
+
+
+			// hae vastaukset
+			$sql = "SELECT title, postid, acount, views, tags, content, netvotes, UNIX_TIMESTAMP(updated) as updated, UNIX_TIMESTAMP(created) as created FROM qa_posts WHERE type='A' and parentid='".$pid."' ORDER BY created DESC LIMIT 20;";
+			$answers = mysqli_query($con,$sql) or die(ApiErrors::errorDbQuery(mysqli_error($con), mysqli_errno($con), __FUNCTION__));
+			$tiedot .= " \"answers\": [\n";
+			while ($row = mysqli_fetch_array($answers)):  
+				$apostid    =   $row['postid'];
+				$avotes    =   $row['netvotes'];
+				$acreated    =   $row['created'];
+				//$acreated = strtotime('+1 month',$created);
+				$answercontent    =   utf8_encode($row['content']);
+				
+				$answercontent = api::bbcode_to_html($answercontent);
+				$answercontent = api::escapeJsonString($answercontent);	
+
+				$tiedot .= "    {\n    \"postid\":\"".$apostid."\",";
+				$tiedot .= "\n    \"votes\":\"".$avotes."\",";
+				$tiedot .= "\n    \"content\":\"".$answercontent."\",";
+				$tiedot .= "\n    \"created\":".$acreated."\n    },\n";
+				
+
+			endwhile;
+			
+		
+		endwhile; 
+		if($found){
+			$cout = substr($tiedot, 0, strlen($tiedot) -2);
+			$cout .="\n],\n";
+		 	// lisää rights osuus
+			$rights = Api::getRights();
+			$cout .= $rights;
+			$cout .= "\n}";
+			// palauta JSON headerilla
+			Api::outputJSON($cout);
+
+		}else{
+			ApiErrors::errorEmpty();
+		}
+
+		// lisää lokiin tieto
+		Api::addToLog($con);
+		$con->close();
+
+	}	
+
+  }
+
+  static public function escapeJsonString($value) { 
+    $escapers = array("\\", "\"", "\n", "\r", "\t", "\x08", "\x0c");
+    $replacements = array("\\\\", "'", "\\n", "\\r", "\\t", "\\f", "\\b");
+    $result = str_replace($escapers, $replacements, $value);
+    return $result;
+  }
+
+  public function bbcode_to_html($bbtext){
+	  $bbtags = array(
+	    '[heading1]' => '<h1>','[/heading1]' => '</h1>',
+	    '[heading2]' => '<h2>','[/heading2]' => '</h2>',
+	    '[heading3]' => '<h3>','[/heading3]' => '</h3>',
+	    '[h1]' => '<h1>','[/h1]' => '</h1>',
+	    '[h2]' => '<h2>','[/h2]' => '</h2>',
+	    '[h3]' => '<h3>','[/h3]' => '</h3>',
+
+	    '[paragraph]' => '<p>','[/paragraph]' => '</p>',
+	    '[para]' => '<p>','[/para]' => '</p>',
+	    '[p]' => '<p>','[/p]' => '</p>',
+	    '[left]' => '<p style="text-align:left;">','[/left]' => '</p>',
+	    '[right]' => '<p style="text-align:right;">','[/right]' => '</p>',
+	    '[center]' => '<p style="text-align:center;">','[/center]' => '</p>',
+	    '[justify]' => '<p style="text-align:justify;">','[/justify]' => '</p>',
+
+	    '[bold]' => '<span style="font-weight:bold;">','[/bold]' => '</span>',
+	    '[italic]' => '<span style="font-weight:bold;">','[/italic]' => '</span>',
+	    '[underline]' => '<span style="text-decoration:underline;">','[/underline]' => '</span>',
+	    '[b]' => '<span style="font-weight:bold;">','[/b]' => '</span>',
+	    '[i]' => '<span style="font-weight:bold;">','[/i]' => '</span>',
+	    '[u]' => '<span style="text-decoration:underline;">','[/u]' => '</span>',
+	    '[break]' => '<br>',
+	    '[br]' => '<br>',
+	    '[newline]' => '<br>',
+	    '[nl]' => '<br>',
+	    
+	    '[unordered_list]' => '<ul>','[/unordered_list]' => '</ul>',
+	    '[list]' => '<ul>','[/list]' => '</ul>',
+	    '[ul]' => '<ul>','[/ul]' => '</ul>',
+
+	    '[ordered_list]' => '<ol>','[/ordered_list]' => '</ol>',
+	    '[ol]' => '<ol>','[/ol]' => '</ol>',
+	    '[list_item]' => '<li>','[/list_item]' => '</li>',
+	    '[li]' => '<li>','[/li]' => '</li>',
+	    
+	    '[*]' => '<li>','[/*]' => '</li>',
+	    '[code]' => '<code>','[/code]' => '</code>',
+	    '[preformatted]' => '<pre>','[/preformatted]' => '</pre>',
+	    '[pre]' => '<pre>','[/pre]' => '</pre>',     
+	  );
+
+	  $bbtext = str_ireplace(array_keys($bbtags), array_values($bbtags), $bbtext);
+
+	  $bbextended = array(
+	    "/\[url](.*?)\[\/url]/i" => "<a href=\"http://$1\" title=\"$1\">$1</a>",
+	    "/\[url=(.*?)\](.*?)\[\/url\]/i" => "<a href=\"$1\" title=\"$1\">$2</a>",
+	    "/\[email=(.*?)\](.*?)\[\/email\]/i" => "<a href=\"mailto:$1\">$2</a>",
+	    "/\[mail=(.*?)\](.*?)\[\/mail\]/i" => "<a href=\"mailto:$1\">$2</a>",
+	    "/\[img\]([^[]*)\[\/img\]/i" => "<img src=\"$1\" alt=\" \" />",
+	    "/\[image\]([^[]*)\[\/image\]/i" => "<img src=\"$1\" alt=\" \" />",
+	    "/\[image_left\]([^[]*)\[\/image_left\]/i" => "<img src=\"$1\" alt=\" \" class=\"img_left\" />",
+	    "/\[image_right\]([^[]*)\[\/image_right\]/i" => "<img src=\"$1\" alt=\" \" class=\"img_right\" />",
+	  );
+
+	  foreach($bbextended as $match=>$replacement){
+	    $bbtext = preg_replace($match, $replacement, $bbtext);
+	  }
+	  return $bbtext;
+	}
 
 
   static public function QuestionsCount(){
@@ -1197,11 +1460,11 @@ static public function Questions(){
 				}
 			$tiedot .= "    {\"title\":\"".$title."\",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
 			$tiedot .= "\n     \"updated\": ".$updated.",";
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
 			$tiedot .= "\n     \"url\": \"".$url."\",";
 			$tiedot .= "\n     ".$tagsout."},\n";    
 		endwhile; 
@@ -1302,11 +1565,11 @@ static public function Questions(){
 				}
 			$tiedot .= "    {\"title\":\"".$title."\",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
 			$tiedot .= "\n     \"updated\": ".$updated.",";
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
 			$tiedot .= "\n     \"url\": \"".$url."\",";
 			$tiedot .= "\n     ".$tagsout."},\n";    
 		endwhile; 
@@ -1403,11 +1666,11 @@ static public function Questions(){
 				}
 			$tiedot .= "    {\"title\":\"".$title."\",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
 			$tiedot .= "\n     \"updated\": ".$updated.",";
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
 			$tiedot .= "\n     \"url\": \"".$url."\",";
 			$tiedot .= "\n     ".$tagsout."},\n";    
 		endwhile; 
@@ -1489,10 +1752,10 @@ static public function Questions(){
 			$url .= strtolower($normalized_title);
 			$tiedot .= "    {\"title\":\"".$title."\",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
-			$tiedot .= "\n     \"answer_count\": ".$acount.",";
+			$tiedot .= "\n     \"answercount\": ".$acount.",";
 			$tiedot .= "\n     \"url\": \"".$url."\"\n    },\n";
 			$counter++;
 			
@@ -1573,12 +1836,12 @@ static public function AnswersId($uid){
 			$url = "http://avoindata.net/".$parentid."/";
 			$url .= strtolower($normalized_title);
 			$tiedot .= "    {\"parent_title\":\"".$parenttitle."\",";
-			$tiedot .= "\n     \"parent_id\": ".$parentid.",";
+			$tiedot .= "\n     \"parentid\": ".$parentid.",";
 			$tiedot .= "\n     \"id\": ".$postid.",";
-			$tiedot .= "\n     \"view_count\": ".$vcount.",";
+			$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 			$tiedot .= "\n     \"votes\": ".$votes.",";
 			$tiedot .= "\n     \"created\": ".$created.",";
-			$tiedot .= "\n     \"parent_url\": \"".$url."\"\n    },\n";
+			$tiedot .= "\n     \"parenturl\": \"".$url."\"\n    },\n";
 			$counter++;
 			
 		endwhile; 
@@ -1642,23 +1905,23 @@ static public function AnswersId($uid){
 				$vcount    =   $row['views'];
 				$votes    =   $row['netvotes'];
 				$created    =   $row['created'];
-				$created = strtotime('+1 month',$created); 
+				//$created = strtotime('+1 month',$created); 
 				if(strlen($row['updated']) < 6){
 					$updated    = 0;
 				}else{
 					$updated    =   $row['updated'];
-					$updated = strtotime('+1 month',$updated);
+					//$updated = strtotime('+1 month',$updated);
 				}
 				$normalized_title = api::normalize_str($title);
 				$url = "http://avoindata.net/".$postid."/";
 				$url .= strtolower($normalized_title);
 				$tiedot .= "    { \"title\":\"".$title."\",";
 				$tiedot .= "\n     \"id\": ".$postid.",";
-				$tiedot .= "\n     \"view_count\": ".$vcount.",";
+				$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 				$tiedot .= "\n     \"votes\": ".$votes.",";
 				$tiedot .= "\n     \"created\": ".$created.",";
 				$tiedot .= "\n     \"updated\": ".$updated.",";
-				$tiedot .= "\n     \"answer_count\": ".$acount.",";
+				$tiedot .= "\n     \"answercount\": ".$acount.",";
 				$tiedot .= "\n     \"url\": \"".$url."\"},\n";
 				$counter++;
 			}
@@ -1738,11 +2001,11 @@ static public function AnswersId($uid){
 				$url .= strtolower($normalized_title);
 				$tiedot .= "    { \"title\":\"".$title."\",";
 				$tiedot .= "\n     \"id\": ".$postid.",";
-				$tiedot .= "\n     \"view_count\": ".$vcount.",";
+				$tiedot .= "\n     \"viewcount\": ".$vcount.",";
 				$tiedot .= "\n     \"votes\": ".$votes.",";
 				$tiedot .= "\n     \"created\": ".$created.",";
 				$tiedot .= "\n     \"updated\": ".$updated.",";
-				$tiedot .= "\n     \"answer_count\": ".$acount.",";
+				$tiedot .= "\n     \"answercount\": ".$acount.",";
 				$tiedot .= "\n     \"url\": \"".$url."\"},\n";
 				$counter++;
 			}
@@ -1850,7 +2113,7 @@ static public function AnswersId($uid){
    }	
 
  public function getConnection(){
-	$con = mysqli_connect("host","username","passwd","dbname");
+	$con = mysqli_connect("127.0.0.1","avoin","G!8EmSyBZh","avoindata");
 	return $con;
  }
 
